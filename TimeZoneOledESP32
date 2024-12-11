@@ -1,0 +1,124 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+
+// OLED setup
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// WiFi setup
+const char* ssid = "yourSSID";
+const char* password = "yourPASSWORD";
+
+// Time Zones (in seconds)
+const int TIME_ZONES[] = {2 * 3600, 0, -5 * 3600, -8 * 3600, 11 * 3600, 9 * 3600, 1 * 3600, 1 * 3600}; 
+const char* LOCATIONS[] = {"Cape Town", "London", "New York", "Los Angeles", "Sydney", "Tokyo", "Paris", "Milan"};
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0); // UTC Time from NTP server
+
+// Buttons
+#define BUTTON_RIGHT 19
+#define BUTTON_LEFT 18
+#define BUTTON_RESET 9
+
+int currentCity = 0; // Default: Cape Town
+
+void setup() {
+  // Initialize Serial
+  Serial.begin(115200);
+
+  // Initialize OLED
+  Wire.begin(7, 6); // SDA = GPIO 6, SCL = GPIO 7
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    while (1);
+  }
+  display.clearDisplay();
+  display.display();
+
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected to WiFi");
+  
+  timeClient.begin();
+
+  // Configure buttons as inputs
+  pinMode(BUTTON_RIGHT, INPUT_PULLUP);
+  pinMode(BUTTON_LEFT, INPUT_PULLUP);
+  pinMode(BUTTON_RESET, INPUT_PULLUP);
+
+  displayMessage("Clock Initialized");
+}
+
+void loop() {
+  timeClient.update();
+
+  // Handle Button Presses
+  if (digitalRead(BUTTON_RIGHT) == LOW) {
+    currentCity = (currentCity + 1) % 8;
+    delay(300); // Debounce
+  }
+  if (digitalRead(BUTTON_LEFT) == LOW) {
+    currentCity = (currentCity - 1 + 8) % 8; // Wrap around
+    delay(300); // Debounce
+  }
+  if (digitalRead(BUTTON_RESET) == LOW) {
+    currentCity = 0; // Reset to Cape Town
+    delay(300); // Debounce
+  }
+
+  // Calculate Local Time
+  long utcTime = timeClient.getEpochTime();
+  long localTime = utcTime + TIME_ZONES[currentCity];
+
+  // Display Time and Location
+  displayTime(localTime, LOCATIONS[currentCity]);
+}
+
+void displayTime(long timeStamp, const char* location) {
+  static String lastTime = ""; // Store the last displayed time to reduce updates
+
+  // Calculate time components
+  int hours = (timeStamp % 86400L) / 3600;  // Hours
+  int minutes = (timeStamp % 3600) / 60;    // Minutes
+  int seconds = timeStamp % 60;            // Seconds
+
+  // Format time as a string
+  String currentTime = (hours < 10 ? "0" : "") + String(hours) + ":" +
+                       (minutes < 10 ? "0" : "") + String(minutes) + ":" +
+                       (seconds < 10 ? "0" : "") + String(seconds);
+
+  // Update only if necessary
+  if (currentTime != lastTime) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+
+    display.setCursor(0, 0);
+    display.println(location); // Display location
+    display.setCursor(0, 20);
+    display.println(currentTime); // Display time
+
+    display.display();
+    lastTime = currentTime;
+  }
+}
+
+void displayMessage(const char* message) {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(message);
+  display.display();
+  delay(2000);
+}
